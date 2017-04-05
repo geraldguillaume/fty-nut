@@ -8,12 +8,22 @@ set -ex
 # Verify all required dependencies with repos can be checked out
 cd "$REPO_DIR/.."
 git clone --quiet --depth 1 https://github.com/zeromq/libzmq.git libzmq
+
+### NOTE: Manual edit
+case "$CI_CZMQ_VER" in
+3)
+git clone --quiet -b v3.0.2 --depth 1 https://github.com/42ity/czmq.git czmq
+;;
+4|*)
 git clone --quiet --depth 1 https://github.com/zeromq/czmq.git czmq
+;;
+esac
+
 git clone --quiet --depth 1 https://github.com/zeromq/malamute.git malamute
 git clone --quiet --depth 1 https://github.com/42ity/fty-proto fty-proto
 git clone --quiet --depth 1 https://github.com/42ity/libcidr cidr
 git clone --quiet --depth 1 -b 42ity https://github.com/42ity/cxxtools cxxtools
-git clone --quiet --depth 1 https://github.com/networkupstools/nut libnutclient
+git clone --quiet --depth 1 -b FTY https://github.com/42ity/nut libnutclient
 cd -
 
 if ! ((command -v dpkg-query >/dev/null 2>&1 && dpkg-query --list zproject >/dev/null 2>&1) || \

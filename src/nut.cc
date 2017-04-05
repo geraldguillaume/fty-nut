@@ -431,21 +431,26 @@ nut_save (nut_t *self, const char *fullpath)
                                             // avoid a lot of allocs
     assert (chunk);
 
+    /* Note: Protocol data uses 8-byte sized words, and zmsg_XXcode and file
+     * functions deal with platform-dependent unsigned size_t and signed off_t
+     */
     fty_proto_t *asset = (fty_proto_t *) zhashx_first (self->assets);
     while (asset) {
+#if CZMQ_VERSION_MAJOR == 3
         fty_proto_t *duplicate = fty_proto_dup (asset);
         assert (duplicate);
         zmsg_t *zmessage = fty_proto_encode (&duplicate); // duplicate destroyed here
         assert (zmessage);
 
         byte *buffer = NULL;
-        uint64_t size = zmsg_encode (zmessage, &buffer);
+        size_t size = zmsg_encode (zmessage, &buffer);
         zmsg_destroy (&zmessage);
 
         assert (buffer);
         assert (size > 0);
 
         // prefix
+// FIXME: originally this was for uint64_t, should it be sizeof (size) instead?
         zchunk_extend (chunk, (const void *) &size, sizeof (uint64_t));
         // data
         zchunk_extend (chunk, (const void *) buffer, size);
@@ -453,6 +458,35 @@ nut_save (nut_t *self, const char *fullpath)
         free (buffer); buffer = NULL;
 
         asset = (fty_proto_t *) zhashx_next (self->assets);
+#else
+/* Assume CZMQ4 */
+/* FIXME: Someone should look at this - what do we want achieved here? */
+        fty_proto_t *duplicate = fty_proto_dup (asset);
+        assert (duplicate);
+        zmsg_t *zmessage = fty_proto_encode (&duplicate); // duplicate destroyed here
+        assert (zmessage);
+
+        zframe_t *frame = zmsg_encode (zmessage);
+        size_t size = zframe_size (frame);
+        zmsg_destroy (&zmessage);
+
+        assert (frame);
+        assert (size > 0);
+
+        // prefix
+// FIXME: originally this was for uint64_t, should it be sizeof (size) instead?
+        zchunk_extend (chunk, (const void *) &size, sizeof (uint64_t));
+/* FIXME: Someone should look at this - don't we have anything
+ * to extend for frame case? */
+        // data
+//        zchunk_extend (chunk, (const void *) buffer, size);
+
+/* FIXME: Someone should look at this - don't we have anything
+ * (else) to free for frame case? */
+        zframe_destroy (&frame);
+
+        asset = (fty_proto_t *) zhashx_next (self->assets);
+#endif
     }
 
     if (zchunk_write (chunk, zfile_handle (file)) == -1) {
@@ -515,10 +549,17 @@ nut_load (nut_t *self, const char *fullpath)
 
     while (offset < cursize) {
         byte *prefix = zchunk_data (chunk) + offset;
-        byte *data = zchunk_data (chunk) + offset + sizeof (uint64_t);
-        offset += (uint64_t) *prefix +  sizeof (uint64_t);
+#if CZMQ_VERSION_MAJOR == 3
+        byte *data = zchunk_data (chunk) + offset + sizeof (size_t);
+#endif
+        offset += (size_t) *prefix +  sizeof (size_t);
 
+#if CZMQ_VERSION_MAJOR == 3
         zmsg_t *zmessage = zmsg_decode (data, (size_t) *prefix);
+#else
+/* FIXME: Someone should look at this - what do we want achieved here? */
+        zmsg_t *zmessage = zmsg_decode (*prefix);
+#endif
         assert (zmessage);
         fty_proto_t *asset = fty_proto_decode (&zmessage); // zmessage destroyed
         assert (asset);
